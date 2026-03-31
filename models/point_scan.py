@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 
-from pytorch3d.ops import knn_points, sample_farthest_points
+from pytorch3d.ops import knn_points as knn
+from pytorch3d.ops import sample_farthest_points as fps
 from serialization import Point
 
 
@@ -53,8 +54,8 @@ class Group(nn.Module):  # FPS + KNN
             center : B G 3
         '''
         batch_size, num_points, _ = xyz.shape
-        center, _ = sample_farthest_points(xyz, K=self.num_group)  # B G 3
-        knn_result = knn_points(center, xyz, K=self.group_size)
+        center, _ = fps(xyz, K=self.num_group)  # B G 3
+        knn_result = knn(center, xyz, K=self.group_size)
         idx = knn_result.idx  # B G M
 
         assert idx.size(1) == self.num_group

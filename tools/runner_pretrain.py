@@ -3,7 +3,8 @@ import torch.nn as nn
 import os
 import json
 from tools import builder
-from utils import misc, dist_utils
+from pytorch3d.ops import sample_farthest_points as fps
+from utils import dist_utils
 import time
 from utils.logger import *
 from utils.AverageMeter import AverageMeter
@@ -128,7 +129,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
                 points = data.cuda()
             elif dataset_name == 'ModelNet':
                 points = data[0].cuda()
-                points = misc.fps(points, npoints)
+                points, _ = fps(points, npoints)
             else:
                 raise NotImplementedError(f'Train phase do not support {dataset_name}')
 
@@ -218,7 +219,7 @@ def validate(base_model, extra_train_dataloader, test_dataloader, epoch, val_wri
             points = data[0].cuda()
             label = data[1].cuda()
 
-            points = misc.fps(points, npoints)
+            points, _ = fps(points, npoints)
 
             assert points.size(1) == npoints
             feature = base_model(points, noaug=True)
@@ -231,7 +232,7 @@ def validate(base_model, extra_train_dataloader, test_dataloader, epoch, val_wri
             points = data[0].cuda()
             label = data[1].cuda()
 
-            points = misc.fps(points, npoints)
+            points, _ = fps(points, npoints)
             assert points.size(1) == npoints
             feature = base_model(points, noaug=True)
             target = label.view(-1)
