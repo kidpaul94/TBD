@@ -8,12 +8,10 @@ import numpy as np
 import warnings
 import pickle
 
-from tqdm import tqdm
 from torch.utils.data import Dataset
 from .build import DATASETS
 from utils.logger import *
 import torch
-import random
 
 warnings.filterwarnings('ignore')
 

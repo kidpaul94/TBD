@@ -1,7 +1,5 @@
 import torch
 import torch.nn as nn
-import os
-import json
 from tools import builder
 from pytorch3d.ops import sample_farthest_points as fps
 from utils import dist_utils

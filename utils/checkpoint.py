@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
-import copy
-import logging
-import os
 from collections import defaultdict
-import torch
 import torch.nn as nn
 
 from typing import Any
-from typing import Optional, List, Dict, NamedTuple, Tuple, Iterable
+from typing import List, Dict, Tuple, Iterable
 
 from termcolor import colored
 
