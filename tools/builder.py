@@ -1,4 +1,4 @@
-import os, sys
+import os
 # online package
 import torch
 # optimizer
@@ -18,19 +18,21 @@ def worker_init_fn(worker_id):
     numpy.random.seed(worker_seed)
     random.seed(worker_seed)
 
-def dataset_builder(args, config):
+def dataset_builder(args, config, total_bs):
     dataset = build_dataset_from_cfg(config._base_, config.others)
     shuffle = config.others.subset == 'train'
+    world_size = torch.distributed.get_world_size() if args.distributed else 1
+    bs = total_bs // world_size
     if args.distributed:
         sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=shuffle)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.others.bs,
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=bs,
                                                  num_workers=int(args.num_workers),
                                                  drop_last=config.others.subset == 'train',
                                                  worker_init_fn=worker_init_fn,
                                                  sampler=sampler)
     else:
         sampler = None
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.others.bs,
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=bs,
                                                  shuffle=shuffle,
                                                  drop_last=config.others.subset == 'train',
                                                  num_workers=int(args.num_workers),
@@ -75,14 +77,13 @@ def build_opti_sche(base_model, config):
         scheduler = build_lambda_sche(optimizer, sche_config.kwargs)  # misc.py
     elif sche_config.type == 'CosLR':
         scheduler = CosineLRScheduler(optimizer,
-                                      t_initial=sche_config.kwargs.epochs,
-                                      t_mul=1,
-                                      lr_min=1e-6,
-                                      decay_rate=0.1,
-                                      warmup_lr_init=1e-6,
-                                      warmup_t=sche_config.kwargs.initial_epochs,
-                                      cycle_limit=1,
-                                      t_in_epochs=True)
+                                    t_initial=sche_config.kwargs.epochs,
+                                    lr_min=1e-6,
+                                    cycle_decay=0.1,
+                                    warmup_lr_init=1e-6,
+                                    warmup_t=sche_config.kwargs.initial_epochs,
+                                    cycle_limit=1,
+                                    t_in_epochs=True)
     elif sche_config.type == 'StepLR':
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, **sche_config.kwargs)
     elif sche_config.type == 'function':
@@ -177,3 +178,58 @@ def load_model(base_model, ckpt_path, logger=None):
         metrics = 'No Metrics'
     print_log(f'ckpts @ {epoch} epoch( performance = {str(metrics):s})', logger=logger)
     return
+
+def load_pretrained(base_model, ckpt_path, logger=None):
+    """
+    Load encoder-only weights from a pre-training checkpoint.
+
+    Decoder keys (decoder, decoder_norm, decoder_head, mask_token) are
+    stripped — they are not needed for downstream fine-tuning.
+    All loaded parameters remain trainable so the full encoder can be
+    fine-tuned on the downstream task.
+
+    Args:
+        base_model : instantiated model (before DataParallel / DDP wrap)
+        ckpt_path  : path to the pre-training checkpoint (.pth)
+        logger     : logger name passed to print_log
+    """
+    if not os.path.exists(ckpt_path):
+        raise FileNotFoundError(
+            f'[PRETRAINED] No checkpoint found at {ckpt_path}')
+    print_log(f'[PRETRAINED] Loading encoder weights from {ckpt_path}...',
+              logger=logger)
+
+    state_dict = torch.load(ckpt_path, map_location='cpu')
+
+    # Support both checkpoint key conventions
+    if state_dict.get('base_model') is not None:
+        raw_ckpt = {k.replace('module.', ''): v
+                    for k, v in state_dict['base_model'].items()}
+    elif state_dict.get('model') is not None:
+        raw_ckpt = {k.replace('module.', ''): v
+                    for k, v in state_dict['model'].items()}
+    else:
+        raise RuntimeError(
+            '[PRETRAINED] Unrecognised checkpoint format: '
+            'expected "base_model" or "model" key.')
+
+    # Strip decoder weights — not needed for downstream fine-tuning
+    _DECODER_PREFIXES = ('decoder', 'decoder_norm', 'decoder_head', 'mask_token')
+    encoder_ckpt = {
+        k: v for k, v in raw_ckpt.items()
+        if not any(k.startswith(p) for p in _DECODER_PREFIXES)
+    }
+
+    missing, unexpected = base_model.load_state_dict(encoder_ckpt, strict=False)
+
+    # missing  = decoder keys deliberately excluded  -> expected, ignore
+    # unexpected = keys in ckpt absent from model    -> worth logging
+    if unexpected:
+        print_log(f'[PRETRAINED] Unexpected keys (ignored): {unexpected}',
+                  logger=logger)
+
+    epoch   = state_dict.get('epoch', -1)
+    n_total = sum(1 for _ in base_model.parameters())
+    print_log(f'[PRETRAINED] Loaded from epoch {epoch}. '
+              f'{n_total} parameters available for fine-tuning.',
+              logger=logger)

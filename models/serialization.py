@@ -3,7 +3,7 @@ Point, z-order and h-order are copied form PointCept
 https://github.com/Pointcept/Pointcept
 """
 import torch
-from hilbert import encode as hilbert_encode_
+from models.hilbert import encode as hilbert_encode_
 from addict import Dict
 
 class Point(Dict):
