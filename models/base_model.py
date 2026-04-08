@@ -7,7 +7,7 @@ bidirectional Hilbert-curve serialization.
 Dependencies
 ------------
   mambapy   : pure-Python Mamba (no CUDA extension required)
-  pytorch3d : fps / knn (used by PointScan / Group / AdaptiveGroup)
+  pytorch3d : fps / knn (used by PointScan / Group)
 
 Modes
 -----
@@ -16,14 +16,6 @@ Modes
   Evaluation (noaug=True)  : full bidirectional Hilbert scan →
                               cls + mean global feature [B, 2*trans_dim]
                               (delegates entirely to PointScan.forward)
-
-Grouping strategies (controlled by ``group_mode`` in the YAML config)
-----------------------------------------------------------------------
-  'fps_knn'  (default) : original Group — Farthest Point Sampling + KNN.
-                         Backward-compatible; requires no extra config keys.
-  'adaptive'           : AdaptiveGroup — octree-based geometry-adaptive
-                         grouping driven by per-node normal variance.
-                         Requires the additional keys documented below.
 """
 
 import torch
@@ -113,13 +105,6 @@ class Point_MAE_Mamba_serializationV2(PointScan):
           serialization: unidirectional   # 'unidirectional' | 'bidirectional'
         drop_path: 0.1
         drop_out:  0.0
-
-    Adaptive grouping — add the following keys to the block above::
-
-        group_mode:       adaptive   # switches Group → AdaptiveGroup
-        k_normals:        16         # KNN K for normal estimation
-        dist_percentile:  50         # percentile of NN dists → grid size
-        min_pts_per_node: 4          # min points for a node to be selectable
     """
 
     def __init__(self, config):
@@ -212,7 +197,7 @@ class Point_MAE_Mamba_serializationV2(PointScan):
             # Fully handled by PointScan.forward().
             return super().forward(pts)
 
-        # ── 1. Grouping (fps_knn or adaptive, set by config.group_mode) ───
+        # ── 1. Grouping ───
         neighborhood, center = self.group_divider(pts)    # [B,G,M,3], [B,G,3]
 
         # ── 2. Encode patches ─────────────────────────────────────────────
@@ -291,10 +276,6 @@ class Point_MAE_Mamba_serializationV2(PointScan):
         Flattens the nested ``mamba_config`` block into a SimpleNamespace
         that matches the flat attribute access expected by PointScan.__init__.
 
-        Grouping-strategy fields (``group_mode`` and its companions) are read
-        from the top-level config block, not from ``mamba_config``, so they
-        can be toggled without touching the Mamba hyperparameters.
-
         Args:
             cfg: EasyDict with the structure shown in the class docstring.
 
@@ -312,16 +293,6 @@ class Point_MAE_Mamba_serializationV2(PointScan):
             group_size    = cfg.get('group_size',     32),
             num_group     = cfg.get('num_group',      64),
             cls_dim       = cfg.get('cls_dim',        0),   # unused in pretraining
-
-            # ── Grouping strategy ─────────────────────────────────────────
-            # 'fps_knn'  → Group (default, backward-compatible)
-            # 'adaptive' → AdaptiveGroup
-            group_mode        = cfg.get('group_mode',         'fps_knn'),
-
-            # AdaptiveGroup hyperparameters (ignored when group_mode='fps_knn')
-            k_normals         = cfg.get('k_normals',          16),
-            dist_percentile   = cfg.get('dist_percentile',    50.0),
-            min_pts_per_node  = cfg.get('min_pts_per_node',   4),
 
             # ── MAE-specific fields ───────────────────────────────────────
             mask_ratio    = mc.get('mask_ratio',    0.6),

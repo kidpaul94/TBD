@@ -27,17 +27,6 @@ model: {
   num_group: 64,
   loss: cdl2,
 
-  # ── Grouping strategy ────────────────────────────────────────────────────
-  # 'fps_knn'  : original Group (default, comment out the adaptive keys below)
-  # 'adaptive' : AdaptiveGroup — geometry-adaptive octree-based tokenization
-  group_mode: 'fps_knn',            # switch to 'adaptive' to use AdaptiveGroup
-
-  # AdaptiveGroup hyperparameters (only used when group_mode: 'adaptive')
-  k_normals: 16,                    # KNN K for normal estimation
-  dist_percentile: 50.0,            # percentile of NN distances → grid size
-  min_pts_per_node: 16,              # min points for a node to be selectable
-  # ─────────────────────────────────────────────────────────────────────────
-
   mamba_config: {
     mask_ratio: 0.6,
     mask_type: 'rand',
